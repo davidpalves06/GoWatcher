@@ -2,6 +2,4 @@
 
 set -xe
 
-go build cmd/main.go
-
-./main
+gcc -Wall -Wextra main.c -o main
