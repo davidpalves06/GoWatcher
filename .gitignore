@@ -16,3 +16,6 @@
 
 main
 *.txt
+example/
+
+build_example.sh

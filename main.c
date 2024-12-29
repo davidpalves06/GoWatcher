@@ -15,15 +15,14 @@
 void executeBuildScript(char *script)
 {
     pid_t pid = fork();
-    printf("%s\n",script);
     if (pid == -1)
     {
         perror("fork");
         exit(EXIT_FAILURE);
     }
     else if (pid == 0)
-    {
-        if (execlp(script, script, NULL) == -1)
+    {   
+        if (execlp("/bin/sh" , "/bin/sh",script, NULL) == -1)
         {
             perror("execlp");
             exit(EXIT_FAILURE);
@@ -33,29 +32,29 @@ void executeBuildScript(char *script)
     {
         int status;
         waitpid(pid, &status, 0);
-        if (WIFEXITED(status))
+    }
+}
+
+int checkIfBuildScriptExists(char* script) {
+    if (script != NULL)
+    {
+        FILE *scriptFD = fopen(script, "r");
+        if (scriptFD == NULL)
         {
-            printf("Command exited with status %d\n", WEXITSTATUS(status));
+            return -1;
         }
+        fclose(scriptFD);
     }
+    return 0;
 }
 
-int getFullPathForScript(char* script,char* fullScriptPath) {
-    char cwd[MAX_PATH_SIZE];
-
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        snprintf(fullScriptPath, sizeof(cwd) + sizeof(script), "%s/%s", cwd, script);
-        return 1;
-    } else {
-        perror("getcwd");
-        return -1;
-    }
-}
 
 int main(int argc, char *argv[])
 {
 
     char *build_script = NULL;
+    char *watchFile[100];
+    int watchFileCount = 0;
     for (int i = 0; i < argc; i++)
     {
         if (strcmp(argv[i], "-bs") == 0 && argc > i + 1)
@@ -63,25 +62,16 @@ int main(int argc, char *argv[])
             build_script = argv[i + 1];
             i++;
         }
+        if (strcmp(argv[i], "-watch") == 0 && argc > i + 1)
+        {
+            watchFile[watchFileCount++] = argv[i + 1];
+            i++;
+        }
     }
 
-    if (build_script != NULL)
-    {
-        FILE *scriptFD = fopen(build_script, "r");
-        if (scriptFD == NULL)
-        {
-            fprintf(stderr, "Script file does not exist. %d\n", errno);
-            fclose(scriptFD);
-            return -1;
-        }
-        char* final_build_script = malloc(sizeof(build_script) + MAX_PATH_SIZE);
-        getFullPathForScript(build_script,final_build_script);
-        if (final_build_script == NULL) {
-            perror("Error resolving script path");
-            return -1;
-        }
-        build_script = final_build_script;
-        fclose(scriptFD);
+    if (checkIfBuildScriptExists(build_script) != 0) {
+        printf("Script file does not exist\n");
+        return -1;
     }
 
     int inotify = inotify_init();
@@ -92,11 +82,15 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int fd = inotify_add_watch(inotify, ".", IN_MODIFY | IN_CLOSE_WRITE);
-    if (fd == -1)
-    {
-        fprintf(stdout, "Failed adding watch to file %s\n", ".");
+    for (int i = 0; i < watchFileCount;i++) {
+        int fd = inotify_add_watch(inotify, watchFile[i], IN_MODIFY | IN_CLOSE_WRITE);
+        if (fd == -1)
+        {
+            fprintf(stdout, "Failed adding watch to file %s\n", watchFile[i]);
+            return -1;
+        }
     }
+
 
     char *buffer = malloc(4096);
     INOTIFY_EVENT *event;
@@ -115,7 +109,6 @@ int main(int argc, char *argv[])
             {
                 if (eventTime - lastReload >= 2)
                 {
-                    printf("Time to reload!");
                     executeBuildScript(build_script);
                     lastReload = eventTime;
                 }
