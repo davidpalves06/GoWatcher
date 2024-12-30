@@ -8,9 +8,16 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h> 
 
 #define INOTIFY_EVENT struct inotify_event
 #define MAX_PATH_SIZE 100
+
+int watchFds[100];
+int inotify;
+char *build_script = NULL;
+char *watchFile[100];
+int watchFileCount = 0;
 
 void executeBuildScript(char *script)
 {
@@ -48,13 +55,22 @@ int checkIfBuildScriptExists(char* script) {
     return 0;
 }
 
+void handleTermination() {
+    printf("Terminating...\n");
+    close(inotify);
+    for (int i = 0; i < watchFileCount;i++) {
+        close(watchFds[i]);
+    }
+    exit(0);
+}
 
 int main(int argc, char *argv[])
 {
 
-    char *build_script = NULL;
-    char *watchFile[100];
-    int watchFileCount = 0;
+    signal(SIGINT,handleTermination);
+    signal(SIGTERM,handleTermination);
+    signal(SIGQUIT,handleTermination);
+    
     for (int i = 0; i < argc; i++)
     {
         if (strcmp(argv[i], "-bs") == 0 && argc > i + 1)
@@ -74,7 +90,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int inotify = inotify_init();
+    inotify = inotify_init();
 
     if (inotify == -1)
     {
@@ -83,8 +99,8 @@ int main(int argc, char *argv[])
     }
 
     for (int i = 0; i < watchFileCount;i++) {
-        int fd = inotify_add_watch(inotify, watchFile[i], IN_MODIFY | IN_CLOSE_WRITE);
-        if (fd == -1)
+        watchFds[i] = inotify_add_watch(inotify, watchFile[i], IN_MODIFY | IN_CLOSE_WRITE);
+        if (watchFds[i] == -1)
         {
             fprintf(stdout, "Failed adding watch to file %s\n", watchFile[i]);
             return -1;
@@ -111,6 +127,7 @@ int main(int argc, char *argv[])
                 {
                     executeBuildScript(build_script);
                     lastReload = eventTime;
+                    break;
                 }
             }
         }
